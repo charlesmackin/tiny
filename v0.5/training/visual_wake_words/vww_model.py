@@ -22,7 +22,7 @@ def mobilenet_v1():
     x = inputs # Keras model uses ZeroPadding2D()
 
     # 1st layer, pure conv
-    # Keras 2.2 model has padding='valid' and disables bias
+    # Keras 2.2 model has padding='valid' and disables use_bias
     x = Conv2D(num_filters,
                   kernel_size=3,
                   strides=2,
@@ -277,7 +277,7 @@ def mobilenet_v1():
     # Average pooling, max polling may be used also
     # Keras employs GlobalAveragePooling2D 
     x = AveragePooling2D(pool_size=x.shape[1:3])(x)
-    #x = MaxPooling2D(pool_size=x.shape[1:3])(x)
+    #h = MaxPooling2D(pool_size=h.shape[1:3])(h)
 
     # Keras inserts Dropout() and a pointwise Conv2D() here
     # We are staying with the paper base structure

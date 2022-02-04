@@ -202,7 +202,7 @@ def get_model(args):
     # Reduce size and apply final softmax
     x = Dropout(rate=0.4)(x)
 
-    # x = AveragePooling2D(pool_size=(25,5))(x)
+    # h = AveragePooling2D(pool_size=(25,5))(h)
     x = GlobalAveragePooling2D()(x)
 
     x = Flatten()(x)

@@ -18,27 +18,28 @@ import sys
 # import additional python-library
 ########################################################################
 import numpy as np
-import keras_model
 # from import
 from tqdm import tqdm
 from sklearn import metrics
 # original lib
-import common as com
-import keras_model
+import common_base as com
+import ares_torch_model
 import eval_functions_eembc
 import pylab
-#import tensorflow_model_optimization as tfmot
+import torch
 
 ########################################################################
 # import custom libraries
 ########################################################################
 import utils
 import plot_utils
+import arg_parser
 
 ########################################################################
 # load parameter.yaml
 ########################################################################
-param = com.yaml_load("baseline.yaml")
+param = com.yaml_load("baseline_ares.yaml")
+#param = arg_parser()
 #######################################################################
 
 
@@ -80,44 +81,54 @@ if __name__ == "__main__":
         # set model path
         model_file = "{model}/model_{machine_type}.hdf5".format(model=param["model_directory"],
                                                                 machine_type=machine_type)
+
         print("model directory = %s" %str(param["model_directory"]))
         # load model file
         if not os.path.exists(model_file):
             com.logger.error("{} model not found ".format(machine_type))
             sys.exit(-1)
-        model = keras_model.load_model(model_file)
-        # if param["prune"]:
-        #     print("Pruning model...")
-        #     model_pruned = tfmot.sparsity.keras.prune_low_magnitude(model)
-        #     model_pruned.summary()
-        #     utils.export_layer_info(model_pruned, param)
-        #     model = model_pruned
+
+        batch_size = param["fit"]["batch_size"]
+        epochs = param["fit"]["epochs"]
+
+        model = ares_torch_model.noisy_autoencoder(param)
+        model_file_path = "{model}/model_ToyCar.hdf5".format(model=param["model_directory"])
+        checkpoint = torch.load(model_file_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer = torch.optim.Adam(model.parameters())
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=epochs)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler'])
+        criterion = checkpoint['criterion']
+        loss_history = checkpoint['loss_history']
+        start_epoch = len(loss_history) + 1 #checkpoint['epoch']
+
+        #model = ares_torch_model.noisy_autoencoder(param)
+        #model.load_state_dict(ares_torch_model.load_model(model_file))
+        model.eval()
 
         print("============== LAYER CONFIGS ==============")
-        for layer in model.layers:
-            print(layer.get_config())
-            name = layer.get_config()['name']
+        for name, data in model.named_parameters():
 
             extracted_dir = param["model_directory"] + '/extracted_model'
             activations_dir = param["model_directory"] + '/activations'
             os.makedirs(extracted_dir, exist_ok=True)
             os.makedirs(activations_dir, exist_ok=True)
 
-            #print(layer.get_weights())
-            if len(layer.get_weights()) > 0:
-                weights = layer.get_weights()[0]
+            data = data.detach().cpu().numpy()
+
+            if len(data.shape) == 2:
                 #print(weights)
                 #print(type(weights))
-                weights_path = extracted_dir + '/' + name + '_weights_' + str(weights.shape).replace('(', '').replace(')', '').replace(',', '_').replace(' ', '') + '.csv'
-                np.savetxt(weights_path, weights, fmt='%f', delimiter=',')
+                weights_path = extracted_dir + '/' + name + '_weights_' + str(data.shape).replace('(', '').replace(')', '').replace(',', '_').replace(' ', '') + '.csv'
+                np.savetxt(weights_path, data, fmt='%f', delimiter=',')
 
-                if len(layer.get_weights()) > 1:
-                    biases = layer.get_weights()[1]
-                    biases_path = extracted_dir + '/' + name + '_biases_' + str(biases.shape).replace('(', '').replace(')', '').replace(',', '').replace(' ', '') + '.csv'
-                    np.savetxt(biases_path, biases, fmt='%f', delimiter=',')
+            if len(data.shape) == 1:
+                biases_path = extracted_dir + '/' + name + '_biases_' + str(data.shape).replace('(', '').replace(')', '').replace(',', '').replace(' ', '') + '.csv'
+                np.savetxt(biases_path, data, fmt='%f', delimiter=',')
 
             #print(layer.get_weights())
-        model.summary()
+        #model.summary()
 
         if mode:
             # results by type
@@ -139,7 +150,7 @@ if __name__ == "__main__":
                                                                                      id_str=id_str)
             anomaly_score_list = []
 
-            print("\n============== BEGIN TEST FOR A MACHINE ID ==============")
+            print("\n============== BEGIN TEST FOR A MACHINE ID: %d ==============" %idx)
             y_pred = [0. for k in test_files]
             for file_idx, file_path in tqdm(enumerate(test_files), total=len(test_files)):
                 #print("\nfile_path: %s" %file_path)
@@ -149,10 +160,13 @@ if __name__ == "__main__":
                                                     frames=param["feature"]["frames"],
                                                     n_fft=param["feature"]["n_fft"],
                                                     hop_length=param["feature"]["hop_length"],
+                                                    win_length=param["feature"]["win_length"],
                                                     power=param["feature"]["power"],
                                                     save_png=False)
                     #print("input data dimensions = %s" %str(data.shape))
-                    pred = model.predict(data)
+                    #pred = model.predict(data)
+                    pred = model(torch.tensor(data, dtype=torch.float32))
+
                     #print("output data dimensions = %s" %str(pred.shape))
 
                     # pylab.figure()
@@ -166,8 +180,8 @@ if __name__ == "__main__":
                     # pylab.close()
                     # sys.exit()
 
-                    errors = np.mean(np.square(data - pred), axis=1)
-                    y_pred[file_idx] = np.mean(errors)
+                    pred = pred.detach().cpu().numpy()
+                    y_pred[file_idx] = np.mean(np.square(data - pred))
                     anomaly_score_list.append([os.path.basename(file_path), y_pred[file_idx]])
 
                     label = 'anomaly' if 'anomaly' in file_path.split('/')[-1] else 'normal'
@@ -198,18 +212,18 @@ if __name__ == "__main__":
                 TPR_list, FPR_list = [], []
 
                 inc = 0.01
-                thresholds = np.arange(np.amin(y_pred_np) + inc, np.amax(y_pred_np) - inc, inc)
+                thresholds = np.arange(np.amin(y_pred_np)+inc, np.amax(y_pred_np)-inc, inc)
                 for thres in thresholds:
                     anom = np.where(y_pred_np > thres, 1, 0)
 
-                    TP = np.sum(anom * y_true_np)  # where both pos
+                    TP = np.sum(anom * y_true_np)                           # where both pos
                     TN = np.sum(np.where(anom + y_true_np < 1, 1, 0))  # where both zero
 
-                    FN = np.sum(np.where(anom < y_true_np, 1, 0))  # where pred < true
-                    FP = np.sum(np.where(anom > y_true_np, 1, 0))  # where pred > true
+                    FN = np.sum(np.where(anom < y_true_np, 1, 0))      # where pred < true
+                    FP = np.sum(np.where(anom > y_true_np, 1, 0))      # where pred > true
 
-                    TPR = TP / (TP + FN)  # true pos rate
-                    FPR = FP / (FP + TN)  # false pos rate
+                    TPR = TP / (TP + FN)    # true pos rate
+                    FPR = FP / (FP + TN)    # false pos rate
 
                     TPR_list.append(TPR)
                     FPR_list.append(FPR)
@@ -217,12 +231,13 @@ if __name__ == "__main__":
                 true_pos_rate = np.asarray(TPR_list)
                 false_pos_rate = np.asarray(FPR_list)
 
-                roc_auc = np.abs(np.trapz(true_pos_rate, x=false_pos_rate))  # abs because order
+                roc_auc = np.abs(np.trapz(true_pos_rate, x=false_pos_rate)) # abs because order
+
                 np.savetxt(param["result_directory"] + '/ROC_data_' + id_str + '.txt', np.asarray([FPR_list, TPR_list]).T, fmt='%f', delimiter=',')
 
                 x_list = [false_pos_rate, false_pos_rate]
                 y_list = [true_pos_rate, false_pos_rate]
-                legend_list = ["ROC (AUC = %0.2f)" % roc_auc, 'REF']
+                legend_list = ["ROC (AUC = %0.2f)" %roc_auc, 'REF']
                 plot_utils.plot_1d_overlay(x_list,
                                            y_list,
                                            LEGEND_LIST=legend_list,

@@ -11,25 +11,32 @@
 import os
 import glob
 import sys
+import utils
 ########################################################################
 
 
 ########################################################################
 # import additional python-library
 ########################################################################
+import sys
 import numpy
+import plot_utils
 # from import
 from tqdm import tqdm
 # original lib
 import common as com
+#import keras_model
 import keras_model
+import numpy as np
+import torch
 ########################################################################
 
 
 ########################################################################
 # load parameter.yaml
 ########################################################################
-param = com.yaml_load()
+param = com.yaml_load("baseline.yaml")
+print(param)
 ########################################################################
 
 
@@ -40,7 +47,7 @@ class visualizer(object):
     def __init__(self):
         import matplotlib.pyplot as plt
         self.plt = plt
-        self.fig = self.plt.figure(figsize=(30, 10))
+        self.fig = self.plt.figure(figsize=(20, 8))
         self.plt.subplots_adjust(wspace=0.3, hspace=0.3)
 
     def loss_plot(self, loss, val_loss):
@@ -56,8 +63,8 @@ class visualizer(object):
         """
         ax = self.fig.add_subplot(1, 1, 1)
         ax.cla()
-        ax.plot(loss)
-        ax.plot(val_loss)
+        ax.semilogx(loss, linewidth=2)
+        ax.semilogx(val_loss, linewidth=2)
         ax.set_title("Model loss")
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Loss")
@@ -74,17 +81,7 @@ class visualizer(object):
         """
         self.plt.savefig(name)
 
-
-########################################################################
-
-
-def list_to_vector_array(file_list,
-                         msg="calc...",
-                         n_mels=64,
-                         frames=5,
-                         n_fft=1024,
-                         hop_length=512,
-                         power=2.0):
+def list_to_vector_array(file_list, msg="calc...", n_mels=64, frames=5, n_fft=1024, hop_length=512, power=2.0):
     """
     convert the file_list to a vector array.
     file_to_vector_array() is iterated, and the output vector array is concatenated.
@@ -116,10 +113,7 @@ def list_to_vector_array(file_list,
 
     return dataset
 
-
-def file_list_generator(target_dir,
-                        dir_name="train",
-                        ext="wav"):
+def file_list_generator(target_dir, dir_name="train", ext="wav"):
     """
     target_dir : str
         base directory path of the dev_data or eval_data
@@ -142,8 +136,6 @@ def file_list_generator(target_dir,
 
     com.logger.info("train_file num : {num}".format(num=len(files)))
     return files
-########################################################################
-
 
 ########################################################################
 # main 00_train.py
@@ -158,6 +150,7 @@ if __name__ == "__main__":
         
     # make output directory
     os.makedirs(param["model_directory"], exist_ok=True)
+    print(param["model_directory"])
 
     # initialize the visualizer
     visualizer = visualizer()
@@ -208,6 +201,11 @@ if __name__ == "__main__":
         
         visualizer.loss_plot(history.history["loss"], history.history["val_loss"])
         visualizer.save_figure(history_img)
+        #print(model.get_weights())
+        #print(len(model.get_weights()))
+
+        utils.export_layer_info(model, param)
+
         model.save(model_file_path)
         com.logger.info("save_model -> {}".format(model_file_path))
         print("============== END TRAINING ==============")

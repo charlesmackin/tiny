@@ -12,7 +12,8 @@ https://github.com/SiliconLabs/platform_ml_models/blob/master/eembc/Methodology/
 
 import numpy as np
 import matplotlib.pyplot as plt
-
+import matplotlib
+matplotlib.use('Qt5Agg') # Qt5Agg, GTKAgg, Qt4Agg
 
 # Classifier overall accuracy calculation
 # y_pred contains the outputs of the network for the validation data

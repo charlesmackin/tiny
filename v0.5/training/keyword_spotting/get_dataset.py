@@ -155,7 +155,7 @@ def get_preprocess_audio_func(model_settings,is_training=False,background_data =
     
       def log10(x):
         # Compute log base 10 on the tensorflow graph.
-        # x is a tensor.  returns log10(x) as a tensor
+        # h is a tensor.  returns log10(h) as a tensor
         numerator = tf.math.log(x)
         denominator = tf.math.log(tf.constant(10, dtype=numerator.dtype))
         return numerator / denominator

@@ -18,27 +18,31 @@ import sys
 # import additional python-library
 ########################################################################
 import numpy as np
-import keras_model
 # from import
 from tqdm import tqdm
 from sklearn import metrics
 # original lib
-import common as com
-import keras_model
+import common_base as com
+import ares_torch_model_base
 import eval_functions_eembc
 import pylab
-#import tensorflow_model_optimization as tfmot
+import torch
 
 ########################################################################
 # import custom libraries
 ########################################################################
-import utils
+import utils_base
 import plot_utils
+import arg_parser
 
 ########################################################################
-# load parameter.yaml
+# load parameter
 ########################################################################
-param = com.yaml_load("baseline.yaml")
+#param = com.yaml_load("baseline_ares.yaml")
+#param = arg_parser()
+parser = arg_parser.test_parser()
+args = parser.parse_args()
+param = vars(args)  # converts parser namespace to dictionary
 #######################################################################
 
 
@@ -49,23 +53,24 @@ if __name__ == "__main__":
     # check mode
     # "development": mode == True
     # "evaluation": mode == False
-    mode = com.command_line_chk()
-    print(mode)
+    #mode = com.command_line_chk()
+    mode = True if param["dev"] else False
     if mode is None:
         sys.exit(-1)
 
+    device = param["device"]
+
     # make output result directory
-    os.makedirs(param["result_directory"], exist_ok=True)
+    os.makedirs(param["result_dir"], exist_ok=True)
+    print(param["result_dir"])
+    results_dir = param["result_dir"]
 
     # load base directory
     dirs = com.select_dirs(param=param, mode=mode)
 
-    print("============== PARAMETERS ==============")
-    for key, val in param.items():
-        print("%s = %s" %(key, str(val)))
-
     print("============== DIRECTORIES ==============")
     print("%s" %str(dirs))
+    print(param["result_dir"])
 
     # initialize lines in csv for AUC and pAUC
     csv_lines = []
@@ -78,46 +83,48 @@ if __name__ == "__main__":
 
         print("============== MODEL LOAD ==============")
         # set model path
-        model_file = "{model}/model_{machine_type}.hdf5".format(model=param["model_directory"],
-                                                                machine_type=machine_type)
-        print("model directory = %s" %str(param["model_directory"]))
+        model_file_path = param["model_dir"] + "/" + param["model_name"]
+
+        print("model directory = %s" %str(param["model_dir"]))
         # load model file
-        if not os.path.exists(model_file):
+        if not os.path.exists(model_file_path):
             com.logger.error("{} model not found ".format(machine_type))
             sys.exit(-1)
-        model = keras_model.load_model(model_file)
-        # if param["prune"]:
-        #     print("Pruning model...")
-        #     model_pruned = tfmot.sparsity.keras.prune_low_magnitude(model)
-        #     model_pruned.summary()
-        #     utils.export_layer_info(model_pruned, param)
-        #     model = model_pruned
+
+        checkpoint = torch.load(model_file_path)
+        param.update(checkpoint["param"])                        # add all params from checkpoint to params dictionary
+        param["result_dir"] = results_dir                        # param update will overwrite result_dir
+        model = ares_torch_model_base.noisy_autoencoder(param)   # instantiate model w/ appropriate n_layers, h_size, etc
+        model.load_state_dict(checkpoint['model_state_dict'])
+        criterion = checkpoint['criterion']
+        model.to(device)
+        model.eval()
+
+        print("============== PARAMETERS ==============")
+        for key, val in param.items():
+            print("%s = %s" % (key, str(val)))
 
         print("============== LAYER CONFIGS ==============")
-        for layer in model.layers:
-            print(layer.get_config())
-            name = layer.get_config()['name']
-
-            extracted_dir = param["model_directory"] + '/extracted_model'
-            activations_dir = param["model_directory"] + '/activations'
-            os.makedirs(extracted_dir, exist_ok=True)
-            os.makedirs(activations_dir, exist_ok=True)
-
-            #print(layer.get_weights())
-            if len(layer.get_weights()) > 0:
-                weights = layer.get_weights()[0]
-                #print(weights)
-                #print(type(weights))
-                weights_path = extracted_dir + '/' + name + '_weights_' + str(weights.shape).replace('(', '').replace(')', '').replace(',', '_').replace(' ', '') + '.csv'
-                np.savetxt(weights_path, weights, fmt='%f', delimiter=',')
-
-                if len(layer.get_weights()) > 1:
-                    biases = layer.get_weights()[1]
-                    biases_path = extracted_dir + '/' + name + '_biases_' + str(biases.shape).replace('(', '').replace(')', '').replace(',', '').replace(' ', '') + '.csv'
-                    np.savetxt(biases_path, biases, fmt='%f', delimiter=',')
+        # for name, data in model.named_parameters():
+        #
+        #     extracted_dir = param["model_dir"] + '/extracted_model'
+        #     activations_dir = param["model_dir"] + '/activations'
+        #     os.makedirs(extracted_dir, exist_ok=True)
+        #     os.makedirs(activations_dir, exist_ok=True)
+        #
+        #     data = data.detach().cpu().numpy()
+        #
+        #     if len(data.shape) == 2:
+        #         #print(weights)
+        #         #print(type(weights))
+        #         weights_path = extracted_dir + '/' + name + '_weights_' + str(data.shape).replace('(', '').replace(')', '').replace(',', '_').replace(' ', '') + '.csv'
+        #         np.savetxt(weights_path, data, fmt='%f', delimiter=',')
+        #
+        #     if len(data.shape) == 1:
+        #         biases_path = extracted_dir + '/' + name + '_biases_' + str(data.shape).replace('(', '').replace(')', '').replace(',', '').replace(' ', '') + '.csv'
+        #         np.savetxt(biases_path, data, fmt='%f', delimiter=',')
 
             #print(layer.get_weights())
-        model.summary()
 
         if mode:
             # results by type
@@ -132,27 +139,34 @@ if __name__ == "__main__":
             # load test file
             test_files, y_true = com.test_file_list_generator(target_dir, id_str, mode)
 
+            print("RESULT SUBDIR = %s" %param["result_dir"])
             # setup anomaly score file path
             anomaly_score_csv = "{result}/anomaly_score_{machine_type}_{id_str}.csv".format(
-                                                                                     result=param["result_directory"],
+                                                                                     result=param["result_dir"],
                                                                                      machine_type=machine_type,
                                                                                      id_str=id_str)
             anomaly_score_list = []
 
-            print("\n============== BEGIN TEST FOR A MACHINE ID ==============")
+            print("\n============== BEGIN TEST FOR A MACHINE ID: %d ==============" %idx)
             y_pred = [0. for k in test_files]
-            for file_idx, file_path in tqdm(enumerate(test_files), total=len(test_files)):
+            for file_idx, file_path in tqdm(enumerate(test_files), total=len(test_files), disable=True):
                 #print("\nfile_path: %s" %file_path)
                 try:
                     data = com.file_to_vector_array(file_path,
-                                                    n_mels=param["feature"]["n_mels"],
-                                                    frames=param["feature"]["frames"],
-                                                    n_fft=param["feature"]["n_fft"],
-                                                    hop_length=param["feature"]["hop_length"],
-                                                    power=param["feature"]["power"],
+                                                    n_mels=param["n_mels"],
+                                                    frames=param["frames"],
+                                                    n_fft=param["n_fft"],
+                                                    hop_length=param["hop_length"],
+                                                    win_length=param["win_length"],
+                                                    power=param["power"],
                                                     save_png=False)
                     #print("input data dimensions = %s" %str(data.shape))
-                    pred = model.predict(data)
+                    #pred = model.predict(data)
+
+                    data = np.clip(data, None, 0)
+
+                    pred = model(torch.tensor(data, dtype=torch.float32).to(device))
+
                     #print("output data dimensions = %s" %str(pred.shape))
 
                     # pylab.figure()
@@ -166,15 +180,15 @@ if __name__ == "__main__":
                     # pylab.close()
                     # sys.exit()
 
-                    errors = np.mean(np.square(data - pred), axis=1)
-                    y_pred[file_idx] = np.mean(errors)
+                    pred = pred.detach().cpu().numpy()
+                    y_pred[file_idx] = np.mean(np.square(data - pred))
                     anomaly_score_list.append([os.path.basename(file_path), y_pred[file_idx]])
 
-                    label = 'anomaly' if 'anomaly' in file_path.split('/')[-1] else 'normal'
-                    input_activations_path = activations_dir + '/input_' + id_str + '_idx_' + str(file_idx) + '_' + label + '_shape_' + str(pred.shape).replace('(', '').replace(')', '').replace(',', '_').replace(' ', '') + '.csv'
-                    output_activations_path = activations_dir + '/output_' + id_str + '_idx_' + str(file_idx) + '_' + label + '_shape_' + str(pred.shape).replace('(', '').replace(')', '').replace(',', '_').replace(' ', '') + '.csv'
-                    np.savetxt(input_activations_path, data, fmt='%f', delimiter=',')
-                    np.savetxt(output_activations_path, pred, fmt='%f', delimiter=',')
+                    #label = 'anomaly' if 'anomaly' in file_path.split('/')[-1] else 'normal'
+                    #input_activations_path = activations_dir + '/input_' + id_str + '_idx_' + str(file_idx) + '_' + label + '_shape_' + str(pred.shape).replace('(', '').replace(')', '').replace(',', '_').replace(' ', '') + '.csv'
+                    #output_activations_path = activations_dir + '/output_' + id_str + '_idx_' + str(file_idx) + '_' + label + '_shape_' + str(pred.shape).replace('(', '').replace(')', '').replace(',', '_').replace(' ', '') + '.csv'
+                    #np.savetxt(input_activations_path, data, fmt='%f', delimiter=',')
+                    #np.savetxt(output_activations_path, pred, fmt='%f', delimiter=',')
 
                 except Exception as e:
                     com.logger.error("file broken!!: {}, {}".format(file_path, e))
@@ -198,18 +212,18 @@ if __name__ == "__main__":
                 TPR_list, FPR_list = [], []
 
                 inc = 0.01
-                thresholds = np.arange(np.amin(y_pred_np) + inc, np.amax(y_pred_np) - inc, inc)
+                thresholds = np.arange(np.amin(y_pred_np)+inc, np.amax(y_pred_np)-inc, inc)
                 for thres in thresholds:
                     anom = np.where(y_pred_np > thres, 1, 0)
 
-                    TP = np.sum(anom * y_true_np)  # where both pos
+                    TP = np.sum(anom * y_true_np)                           # where both pos
                     TN = np.sum(np.where(anom + y_true_np < 1, 1, 0))  # where both zero
 
-                    FN = np.sum(np.where(anom < y_true_np, 1, 0))  # where pred < true
-                    FP = np.sum(np.where(anom > y_true_np, 1, 0))  # where pred > true
+                    FN = np.sum(np.where(anom < y_true_np, 1, 0))      # where pred < true
+                    FP = np.sum(np.where(anom > y_true_np, 1, 0))      # where pred > true
 
-                    TPR = TP / (TP + FN)  # true pos rate
-                    FPR = FP / (FP + TN)  # false pos rate
+                    TPR = TP / (TP + FN)    # true pos rate
+                    FPR = FP / (FP + TN)    # false pos rate
 
                     TPR_list.append(TPR)
                     FPR_list.append(FPR)
@@ -217,18 +231,19 @@ if __name__ == "__main__":
                 true_pos_rate = np.asarray(TPR_list)
                 false_pos_rate = np.asarray(FPR_list)
 
-                roc_auc = np.abs(np.trapz(true_pos_rate, x=false_pos_rate))  # abs because order
-                np.savetxt(param["result_directory"] + '/ROC_data_' + id_str + '.txt', np.asarray([FPR_list, TPR_list]).T, fmt='%f', delimiter=',')
+                roc_auc = np.abs(np.trapz(true_pos_rate, x=false_pos_rate)) # abs because order
+
+                np.savetxt(param["result_dir"] + '/ROC_data_' + id_str + '.txt', np.asarray([FPR_list, TPR_list]).T, fmt='%f', delimiter=',')
 
                 x_list = [false_pos_rate, false_pos_rate]
                 y_list = [true_pos_rate, false_pos_rate]
-                legend_list = ["ROC (AUC = %0.2f)" % roc_auc, 'REF']
+                legend_list = ["ROC (AUC = %0.2f)" %roc_auc, 'REF']
                 plot_utils.plot_1d_overlay(x_list,
                                            y_list,
                                            LEGEND_LIST=legend_list,
                                            XLABEL='False Positive Rate',
                                            YLABEL='True Positive Rate',
-                                           SAVE_NAME=param["result_directory"] + '/ROC_' + id_str,
+                                           SAVE_NAME=param["result_dir"] + '/ROC_' + id_str,
                                            markers=False
                                            )
 
@@ -249,6 +264,11 @@ if __name__ == "__main__":
 
     if mode:
         # output results
-        result_path = "{result}/{file_name}".format(result=param["result_directory"], file_name=param["result_file"])
+        result_path = param["result_dir"] + "/" + param["result_file"]
         com.logger.info("AUC and pAUC results -> {}".format(result_path))
         com.save_csv(save_file_path=result_path, save_data=csv_lines)
+
+        f = open(param["result_dir"] + '/' + 'param_dict.txt', 'w')
+        for key, val in sorted(param.items()):
+            f.write("%s: %s \n" %(key, val))
+        f.close()

@@ -19,6 +19,7 @@ import os
 
 # additional
 import numpy
+import numpy as np
 import librosa
 import librosa.core
 import librosa.feature
@@ -88,8 +89,9 @@ def command_line_chk():
 ########################################################################
 # load parameter.yaml
 ########################################################################
-def yaml_load():
-    with open("baseline.yaml") as stream:
+def yaml_load(file_name):
+    #with open("baseline.yaml") as stream:
+    with open(file_name) as stream:
         param = yaml.safe_load(stream)
     return param
 
@@ -133,12 +135,15 @@ def save_csv(save_file_path,
 # feature extractor
 ########################################################################
 def file_to_vector_array(file_name,
-                         n_mels=64,
+                         n_mels=128,
                          frames=5,
                          n_fft=1024,
                          hop_length=512,
+                         win_length=None,
                          power=2.0,
                          method="librosa",
+                         log_mel_start_ind=50,
+                         log_mel_stop_ind=250,
                          save_png=False,
                          save_hist=False,
                          save_bin=False,
@@ -160,40 +165,67 @@ def file_to_vector_array(file_name,
     y, sr = file_load(file_name)
     if method == "librosa":
         # 02a generate melspectrogram using librosa
-        mel_spectrogram = librosa.feature.melspectrogram(y=y,
-                                                         sr=sr,
-                                                         n_fft=n_fft,
-                                                         hop_length=hop_length,
-                                                         n_mels=n_mels,
+        mel_spectrogram = librosa.feature.melspectrogram(y=y,                       # 176000 data points
+                                                         sr=sr,                     # 16 kHz sampling rate
+                                                         n_fft=n_fft,               # data points used in fft, 1024
+                                                         hop_length=hop_length,     # window slide increment, 512
+                                                         #win_length=win_length,     # win_length <= n_fft, default is n_fft
+                                                         n_mels=n_mels,             # n_mels
                                                          power=power)
+        # mel_spectrogram = np.abs(librosa.stft(y,
+        #                                       n_fft=2*n_mels,
+        #                                       hop_length=hop_length,
+        #                                       win_length=win_length))[:-1,:]
+        # print("===================================")
+        # print("mel_spectrogram.shape = %s" %str(mel_spectrogram.shape))
+        # print("mel_spectrogram.shape = %s" %str(mel_spectrogram[:,0]))
+        # mel_spectrogram = librosa.feature.inverse.mel_to_stft(np.abs(mel_spectrogram),
+        #                                                       sr=sr,
+        #                                                       n_fft=2*n_mels, # create same number of y-axis bins
+        #                                                       power=power)[:-1, :]
+        # print("mel_spectrogram.shape = %s" %str(mel_spectrogram.shape))
+        # print("mel_spectrogram.shape = %s" %str(mel_spectrogram[:,0]))
 
         # 03 convert melspectrogram to log mel energy
         log_mel_spectrogram = 20.0 / power * numpy.log10(mel_spectrogram + sys.float_info.epsilon)
-
+        # 128 x 344
+        # n_mels x (~y / hop_length)
 
     else:
         logger.error("spectrogram method not supported: {}".format(method))
         return numpy.empty((0, dims))
 
     # 3b take central part only
-    log_mel_spectrogram = log_mel_spectrogram[:,50:250];
+    #print(log_mel_spectrogram.shape)
+    log_mel_spectrogram = log_mel_spectrogram[:,log_mel_start_ind:log_mel_stop_ind] # 128 x start:stop
 
     # 04 calculate total vector size
-    vector_array_size = len(log_mel_spectrogram[0, :]) - frames + 1
+    vector_array_size = len(log_mel_spectrogram[0, :]) - frames + 1 # 196
 
     # 05 skip too short clips
     if vector_array_size < 1:
+        print("vector array size too short")
         return numpy.empty((0, dims))
 
     # 06 generate feature vectors by concatenating multiframes
-    vector_array = numpy.zeros((vector_array_size, dims))
+    vector_array = numpy.zeros((vector_array_size, dims))   # 196 x 640
     for t in range(frames):
+        # print("t = %d" %t)
+        # print("n_mels = %d" %n_mels)
+        # print("n_mels * t = %d" %(n_mels * t))
+        # print("n_mels * (t + 1) = %d" %(n_mels * (t + 1)))
+        # print("t + vector_array_size = %d" %(t + vector_array_size))
+        # print("log_mel_spectrogram.shape = %s" %str(log_mel_spectrogram.shape))
+        # print("log_mel_spectrogram[:, t: t + vector_array_size].T.shape = %s" %str(log_mel_spectrogram[:, t: t + vector_array_size].T.shape))
+        # print("vector_array.shape = %s" %str(vector_array.shape))
         vector_array[:, n_mels * t: n_mels * (t + 1)] = log_mel_spectrogram[:, t: t + vector_array_size].T
 
     # 07 (optional) save histogram in png
     if save_png:
         save_path = file_name.replace('.wav', '_hist_' + method + '.png')
         librosa.display.specshow(log_mel_spectrogram)
+        pylab.xlabel('Hz')
+        pylab.ylabel('Time')
         pylab.savefig(save_path, bbox_inches=None, pad_inches=0)
         pylab.close()
 

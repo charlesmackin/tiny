@@ -46,7 +46,7 @@ def resnet_v1_eembc():
                   kernel_regularizer=l2(1e-4))(inputs)
     x = BatchNormalization()(x)
     x = Activation('relu')(x)
-    #x = MaxPooling2D(pool_size=(2, 2))(x) # uncomment this for official resnet model
+    #h = MaxPooling2D(pool_size=(2, 2))(h) # uncomment this for official resnet model
 
 
     # First stack
@@ -150,7 +150,7 @@ def resnet_v1_eembc():
 #                  strides=2,
 #                  padding='same',
 #                  kernel_initializer='he_normal',
-#                  kernel_regularizer=l2(1e-4))(x)
+#                  kernel_regularizer=l2(1e-4))(h)
 #    y = BatchNormalization()(y)
 #    y = Activation('relu')(y)
 #    y = Conv2D(num_filters,
@@ -162,16 +162,16 @@ def resnet_v1_eembc():
 #    y = BatchNormalization()(y)
 #
 #    # Adjust for change in dimension due to stride in identity
-#    x = Conv2D(num_filters,
+#    h = Conv2D(num_filters,
 #                  kernel_size=1,
 #                  strides=2,
 #                  padding='same',
 #                  kernel_initializer='he_normal',
-#                  kernel_regularizer=l2(1e-4))(x)
+#                  kernel_regularizer=l2(1e-4))(h)
 #
 #    # Overall residual, connect weight layer and identity paths
-#    x = tf.keras.layers.add([x, y])
-#    x = Activation('relu')(x)
+#    h = tf.keras.layers.add([h, y])
+#    h = Activation('relu')(h)
 
 
     # Final classification layer.
