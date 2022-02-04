@@ -1,3 +1,7 @@
+# Adapted for Analog Memory-based Hardware Acceleration
+
+Go to the README.md in /v0.5/training/anomaly_detection
+
 # MLPerf™ Tiny Deep Learning Benchmarks for Embedded Devices
 
 The goal of MLPerf Tiny is to provide a representative set of deep neural nets
