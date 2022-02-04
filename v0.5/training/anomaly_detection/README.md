@@ -1,3 +1,27 @@
+# Adapted for Analog Memory-based Hardware Acceleration
+
+1. Clone repository: charlesmackin/tiny (recommended to CCC or AIMOS to enable parallel runs)
+2. Move into cloned repository: cd tiny
+3. Make virtual environment: python3 -m venv venv
+4. Activate virtual environment: source venv/bin/activate
+5. Install necessary python libraries: pip install -r requirements.txt
+6. Move to anomaly detection: cd v0.5/training/anomaly_detection
+7. Download training/test dataset: ./get_dataset.sh (from Zenodo)
+8. Launch parallel training simulations: ./train_autoencoder.sh (CCC command, modify file accordingly)
+9. Will store training models in directory specified by autoencoder_train.sh
+10. Plot training results: python plot_training_results.py (modify accordingly, will plot data from training models directory)
+11. Run test/inference simulations: ./autoencoder_test.sh (modify accordingly)
+12. IMPORTANT: make sure line "for i in {1..36}" in autoencoder_test.sh corresponds to the number of training models created
+13. Test results will be stored in directory specified by autoencoder_test.sh
+14. Print test results: python plot_test_results.py (will be filtered from best to worst AUC score, modify file read directory accordingly)
+15. Optionally plot training loss versus test AUC: python loss_vs_auc.py
+16. Extract best AUC model: python extract_model.py (modify accoridingly, large directory, may need to set path to /dccstor/transformer/... on CCC)
+17. Download model and upload to box folder for transfer to ARES test team
+
+ares_torch_model_base.py contains the noisy analog MAC block used during training/testing (file used with CCC shell scripts ending in .sh)
+pcm_prog_error_model.py details the model used to generate realistic weight errors (from ARES) during training
+
+
 # MLPerf Tiny anomaly detection reference model
 
 This is the MLPerf Tiny anomaly reference model, based on the baseline system for the
